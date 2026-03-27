@@ -22,12 +22,12 @@
 
 // Alerts & Sensors
 #define WARN_LED_PIN 2 
-#define BATTERY_PIN  32 
-#define BUZZER_PIN   4  
+#define BATTERY_PIN  32 // Voltage divider connected here
+#define BUZZER_PIN   4  // Active Piezo Buzzer connected here
 
 // --- Configuration ---
 // How long the ESP32 sleeps between readings (in minutes)
-#define SLEEP_MINUTES 0.1
+#define SLEEP_MINUTES 1
 
 const float SOUND_SPEED = 0.0343; // cm per microsecond
 const uint64_t uS_TO_S_FACTOR = 1000000ULL; // Conversion factor for microseconds to seconds
@@ -65,14 +65,21 @@ void setup() {
            now.Year(), now.Month(), now.Day(), 
            now.Hour(), now.Minute(), now.Second());
 
-  // Create the daily filename (Format: YYYYMMDD.csv, e.g., 20260310.csv)
+  // Create the daily filename (Format: YYYYMMDD.csv, e.g., 20260327.csv)
   char filename[16];
   snprintf(filename, sizeof(filename), "%04d%02d%02d.csv", now.Year(), now.Month(), now.Day());
 
-  // 3. Read the Battery Voltage
+  // 3. Read the Battery Voltage & Calculate Percentage
   int rawADC = analogRead(BATTERY_PIN);
   // (Raw / 4095) * 3.3V reference * 2 (to reverse the 100k+100k voltage divider cut)
-  float battery_V = (rawADC / 4095.0) * 3.3 * 2.0;
+  float battery_V = (rawADC / 4095.0) * 3.588 * 2.0;
+
+  // Map the voltage to a 0-100 scale (4.2V = 100%, 3.3V = 0%)
+  float battery_Pct = ((battery_V - 3.3) / (4.2 - 3.3)) * 100.0;
+  
+  // Safety limits: keep the percentage locked strictly between 0 and 100
+  if (battery_Pct > 100.0) battery_Pct = 100.0;
+  if (battery_Pct < 0.0) battery_Pct = 0.0;
 
   // 4. Read the Ultrasonic Sensor
   digitalWrite(TRIG_PIN, LOW);
@@ -83,14 +90,14 @@ void setup() {
   
   long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
   float distance_cm = 0.0;
-  char csvRow[64];
+  char csvRow[80]; 
   
-  // Format the CSV row to include Timestamp, Distance, AND Battery Voltage
+  // Format the CSV row: Timestamp, Distance, Voltage, AND Percentage (%.0f drops the decimals)
   if (duration > 0) {
     distance_cm = (duration * SOUND_SPEED) / 2.0;
-    snprintf(csvRow, sizeof(csvRow), "%s,%.2f,%.2f", timeStr, distance_cm, battery_V);
+    snprintf(csvRow, sizeof(csvRow), "%s,%.2f,%.2f,%.0f", timeStr, distance_cm, battery_V, battery_Pct);
   } else {
-    snprintf(csvRow, sizeof(csvRow), "%s,ERROR,%.2f", timeStr, battery_V);
+    snprintf(csvRow, sizeof(csvRow), "%s,ERROR,%.2f,%.0f", timeStr, battery_V, battery_Pct);
   }
 
   // 5. Initialize SD Card & Save Data
@@ -104,9 +111,9 @@ void setup() {
     // Open today's specific file
     if (dataFile.open(filename, O_RDWR | O_CREAT | O_AT_END)) {
       
-      // If it is a brand new day/file, write the header row first
+      // Upgrade the header row to include the new 4th column
       if (dataFile.fileSize() == 0) {
-        dataFile.println("Timestamp,Water_Level_cm,Battery_V"); 
+        dataFile.println("Timestamp,Water_Level_cm,Battery_V,Battery_Percentage"); 
       }
       
       // Write the actual sensor data
@@ -119,7 +126,6 @@ void setup() {
       Serial.println(csvRow);
 
       // --- SUCCESS BEEP ---
-      // A single 100ms chirp to let you know data was saved safely
       digitalWrite(BUZZER_PIN, HIGH);
       delay(100);
       digitalWrite(BUZZER_PIN, LOW);

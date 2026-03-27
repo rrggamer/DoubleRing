@@ -24,7 +24,7 @@ void setup() {
 
   // 3. MANUALLY SET THE TIME HERE
   // Format: Year, Month, Day, Hour, Minute, Second
-  RtcDateTime targetTime = RtcDateTime(2026, 3, 10, 22, 11, 0);
+  RtcDateTime targetTime = RtcDateTime(2026, 3, 27, 18, 41, 20);
   
   // 4. Send the command to write the time to the chip
   Rtc.SetDateTime(targetTime); 
